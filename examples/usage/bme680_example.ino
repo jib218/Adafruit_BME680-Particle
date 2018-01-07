@@ -80,5 +80,5 @@ void loop() {
 
     Particle.publish("Sensor", data, 60, PRIVATE);
   }
-  delay(60 * 1000);
+  delay(10 * 1000);
 }
