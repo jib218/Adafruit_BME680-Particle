@@ -15,7 +15,6 @@
   BSD license, all text above must be included in any redistribution
  ***************************************************************************/
 
-#include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
 
 #define BME_SCK 13
