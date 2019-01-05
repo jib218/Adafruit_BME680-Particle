@@ -1,19 +1,30 @@
-/***************************************************************************
-  This is a library for the BME680 humidity, temperature & pressure sensor
-
-  Designed specifically to work with the Adafruit BME680 Breakout
-  ----> http://www.adafruit.com/products/2650
-
-  These sensors use I2C or SPI to communicate, 2 or 4 pins are required
-  to interface.
-
-  Adafruit invests time and resources providing this open source code,
-  please support Adafruit andopen-source hardware by purchasing products
-  from Adafruit!
-
-  Written by Limor Fried & Kevin Townsend for Adafruit Industries.
-  BSD license, all text above must be included in any redistribution
- ***************************************************************************/
+/*!
+ * @file Adafruit_BME680.cpp
+ *
+ * @mainpage Adafruit BME680 temperature, humidity, barometric pressure and gas sensor driver
+ *
+ * @section intro_sec Introduction
+ *
+ * This is the documentation for Adafruit's BME680 driver for the
+ * Arduino platform.  It is designed specifically to work with the
+ * Adafruit BME680 breakout: https://www.adafruit.com/products/3660
+ *
+ * These sensors use I2C to communicate, 2 pins (SCL+SDA) are required
+ * to interface with the breakout.
+ *
+ * Adafruit invests time and resources providing this open source code,
+ * please support Adafruit and open-source hardware by purchasing
+ * products from Adafruit!
+ *
+ * @section author Author
+ *
+ * Written by Ladyada for Adafruit Industries.
+ *
+ * @section license License
+ *
+ * BSD license, all text here must be included in any redistribution.
+ *
+ */
 
 #include "application.h"
 #include "math.h"
@@ -21,8 +32,10 @@
 
 //#define BME680_DEBUG
 
-// must be global in order to work with underlying library
-int8_t _BME680_SoftwareSPI_MOSI, _BME680_SoftwareSPI_MISO, _BME680_SoftwareSPI_SCK;
+///! These SPI pins must be global in order to work with underlying library
+int8_t _BME680_SoftwareSPI_MOSI; ///< Global SPI MOSI pin
+int8_t _BME680_SoftwareSPI_MISO; ///< Global SPI MISO pin
+int8_t _BME680_SoftwareSPI_SCK;  ///< Globak SPI Clock pin
 
 // Our hardware interface functions
 static int8_t i2c_write(uint8_t dev_id, uint8_t reg_addr, uint8_t *reg_data, uint16_t len);
@@ -44,6 +57,7 @@ static void delay_msec(uint32_t ms);
 /**************************************************************************/
 Adafruit_BME680::Adafruit_BME680(int8_t cspin)
   : _cs(cspin)
+  , _meas_end(0)
 {
   _BME680_SoftwareSPI_MOSI = -1;
   _BME680_SoftwareSPI_MISO = -1;
@@ -83,7 +97,7 @@ Adafruit_BME680::Adafruit_BME680(int8_t cspin, int8_t mosipin, int8_t misopin, i
     @return True on sensor initialization success. False on failure.
 */
 /**************************************************************************/
-bool Adafruit_BME680::begin(uint8_t addr) {
+bool Adafruit_BME680::begin(uint8_t addr, bool initSettings) {
   _i2caddr = addr;
 
   if (_cs == -1) {
@@ -157,12 +171,15 @@ bool Adafruit_BME680::begin(uint8_t addr) {
   Serial.print("SW Error = "); Serial.println(gas_sensor.calib.range_sw_err);
 #endif
 
-  setTemperatureOversampling(BME680_OS_8X);
-  setHumidityOversampling(BME680_OS_2X);
-  setPressureOversampling(BME680_OS_4X);
-  setIIRFilterSize(BME680_FILTER_SIZE_3);
-  setGasHeater(320, 150); // 320*C for 150 ms
-
+  if (initSettings) {
+    setTemperatureOversampling(BME680_OS_8X);
+    setHumidityOversampling(BME680_OS_2X);
+    setPressureOversampling(BME680_OS_4X);
+    setIIRFilterSize(BME680_FILTER_SIZE_3);
+    setGasHeater(320, 150); // 320*C for 150 ms
+  } else {
+    setGasHeater(0, 0);
+  }
   // don't do anything till we request a reading
   gas_sensor.power_mode = BME680_FORCED_MODE;
 
@@ -253,8 +270,16 @@ float Adafruit_BME680::readAltitude(float seaLevel)
 */
 /**************************************************************************/
 bool Adafruit_BME680::performReading(void) {
+  return endReading();
+}
+
+unsigned long Adafruit_BME680::beginReading(void) {
+  if (_meas_end != 0) {
+    /* A measurement is already in progress */
+    return _meas_end;
+  }
+
   uint8_t set_required_settings = 0;
-  struct bme680_field_data data;
   int8_t rslt;
 
   /* Select the power mode */
@@ -274,28 +299,53 @@ bool Adafruit_BME680::performReading(void) {
     set_required_settings |= BME680_GAS_SENSOR_SEL;
 
   /* Set the desired sensor configuration */
-  //Serial.println("Setting sensor settings");
+#ifdef BME680_DEBUG
+  Serial.println("Setting sensor settings");
+#endif
   rslt = bme680_set_sensor_settings(set_required_settings, &gas_sensor);
   if (rslt != BME680_OK)
-    return false;
+    return 0;
 
   /* Set the power mode */
-  //Serial.println("Setting power mode");
+#ifdef BME680_DEBUG
+  Serial.println("Setting power mode");
+#endif
   rslt = bme680_set_sensor_mode(&gas_sensor);
   if (rslt != BME680_OK)
-    return false;
+    return 0;
 
   /* Get the total measurement duration so as to sleep or wait till the
    * measurement is complete */
   uint16_t meas_period;
   bme680_get_profile_dur(&meas_period, &gas_sensor);
-  //Serial.print("Waiting (ms) "); Serial.println(meas_period);
-  delay(meas_period * 2); /* Delay till the measurement is ready */
+  _meas_end = millis() + meas_period;
+  return _meas_end;
+}
 
-  //Serial.print("t_fine = "); Serial.println(gas_sensor.calib.t_fine);
+bool Adafruit_BME680::endReading(void) {
+  unsigned long meas_end = beginReading();
+  if (meas_end == 0) {
+    return false;
+  }
+
+  unsigned long now = millis();
+  if (meas_end > now) {
+    unsigned long meas_period = meas_end - now;
+#ifdef BME680_DEBUG
+    Serial.print("Waiting (ms) "); Serial.println(meas_period);
+#endif
+    delay(meas_period * 2); /* Delay till the measurement is ready */
+  }
+  _meas_end = 0; /* Allow new measurement to begin */
+
+#ifdef BME680_DEBUG
+  Serial.print("t_fine = "); Serial.println(gas_sensor.calib.t_fine);
+#endif
+
+  struct bme680_field_data data;
 
   //Serial.println("Getting sensor data");
-  rslt = bme680_get_sensor_data(&data, &gas_sensor);
+  int8_t rslt = bme680_get_sensor_data(&data, &gas_sensor);
   if (rslt != BME680_OK)
     return false;
 
@@ -314,7 +364,7 @@ bool Adafruit_BME680::performReading(void) {
   }
 
   if (_presEnabled) {
-    //Serial.print("Pres: "); Serial.println(data.pressure / 100.0, 2);
+    //Serial.print("Pres: "); Serial.println(data.pressure, 2);
     pressure = data.pressure;
   } else {
     pressure = NAN;
@@ -329,6 +379,8 @@ bool Adafruit_BME680::performReading(void) {
       gas_resistance = 0;
       //Serial.println("Gas reading unstable!");
     }
+  } else {
+    gas_resistance = NAN; 
   }
 
   return true;
@@ -348,9 +400,11 @@ bool Adafruit_BME680::setGasHeater(uint16_t heaterTemp, uint16_t heaterTime) {
 
   if ( (heaterTemp == 0) || (heaterTime == 0) ) {
     // disabled!
+    gas_sensor.gas_sett.heatr_ctrl = BME680_DISABLE_HEATER;
     gas_sensor.gas_sett.run_gas = BME680_DISABLE_GAS_MEAS;
     _gasEnabled = false;
   } else {
+    gas_sensor.gas_sett.heatr_ctrl = BME680_ENABLE_HEATER;
     gas_sensor.gas_sett.run_gas = BME680_ENABLE_GAS_MEAS;
     _gasEnabled = true;
   }
@@ -515,18 +569,14 @@ static int8_t spi_read(uint8_t cspin, uint8_t reg_addr, uint8_t *reg_data, uint1
   Serial.print("\tSPI $"); Serial.print(reg_addr, HEX); Serial.print(" => ");
 #endif
 
-  digitalWrite(cspin, LOW);
-
   // If hardware SPI we should use transactions!
   if (_BME680_SoftwareSPI_SCK == -1) {
-    SPI.begin();
-    SPI.setClockDivider(BME680_DEFAULT_SPIFREQ);
-    SPI.setBitOrder(MSBFIRST);
-    SPI.setDataMode(SPI_MODE0);
-    // SPI.beginTransaction(SPISettings(BME680_DEFAULT_SPIFREQ, MSBFIRST, SPI_MODE0));
+    SPI.beginTransaction(SPISettings(BME680_DEFAULT_SPIFREQ, MSBFIRST, SPI_MODE0));
   }
 
-  spi_transfer(reg_addr);
+  digitalWrite(cspin, LOW);
+
+  spi_transfer(reg_addr | 0x80);
 
   while (len--) {
     *reg_data = spi_transfer(0x00);
@@ -536,11 +586,11 @@ static int8_t spi_read(uint8_t cspin, uint8_t reg_addr, uint8_t *reg_data, uint1
     reg_data++;
   }
 
+  digitalWrite(cspin, HIGH);
+
   if (_BME680_SoftwareSPI_SCK == -1) {
     SPI.endTransaction();
   }
-
-  digitalWrite(cspin, HIGH);
 
 #ifdef BME680_DEBUG
   Serial.println("");
@@ -558,16 +608,12 @@ static int8_t spi_write(uint8_t cspin, uint8_t reg_addr, uint8_t *reg_data, uint
   Serial.print("\tSPI $"); Serial.print(reg_addr, HEX); Serial.print(" <= ");
 #endif
 
-  digitalWrite(cspin, LOW);
-
   // If hardware SPI we should use transactions!
   if (_BME680_SoftwareSPI_SCK == -1) {
-    SPI.begin();
-    SPI.setClockDivider(BME680_DEFAULT_SPIFREQ);
-    SPI.setBitOrder(MSBFIRST);
-    SPI.setDataMode(SPI_MODE0);
-    // SPI.beginTransaction(SPISettings(BME680_DEFAULT_SPIFREQ, MSBFIRST, SPI_MODE0));
+    SPI.beginTransaction(SPISettings(BME680_DEFAULT_SPIFREQ, MSBFIRST, SPI_MODE0));
   }
+
+  digitalWrite(cspin, LOW);
 
   spi_transfer(reg_addr);
   while (len--) {
@@ -578,11 +624,11 @@ static int8_t spi_write(uint8_t cspin, uint8_t reg_addr, uint8_t *reg_data, uint
     reg_data++;
   }
 
+  digitalWrite(cspin, HIGH);
+
   if (_BME680_SoftwareSPI_SCK == -1) {
     SPI.endTransaction();
   }
-
-  digitalWrite(cspin, HIGH);
 
 #ifdef BME680_DEBUG
   Serial.println("");

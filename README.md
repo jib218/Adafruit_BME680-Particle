@@ -9,6 +9,8 @@ http://www.adafruit.com/products/3660
 Written by Adafruit Industries (https://github.com/adafruit/Adafruit_BME680) but
 modified to work with Particle Photon & Core. All credits to them. 
 
+Modified by jib218 in order to make the gas heater optional.
+
 ## Example Wiring ( I2C )
 
 | BME680 | Particle Photon |
