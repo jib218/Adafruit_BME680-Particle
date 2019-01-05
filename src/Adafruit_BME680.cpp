@@ -571,7 +571,11 @@ static int8_t spi_read(uint8_t cspin, uint8_t reg_addr, uint8_t *reg_data, uint1
 
   // If hardware SPI we should use transactions!
   if (_BME680_SoftwareSPI_SCK == -1) {
-    SPI.beginTransaction(SPISettings(BME680_DEFAULT_SPIFREQ, MSBFIRST, SPI_MODE0));
+    SPI.begin();
+    SPI.setClockDivider(BME680_DEFAULT_SPIFREQ);
+    SPI.setBitOrder(MSBFIRST);
+    SPI.setDataMode(SPI_MODE0);
+    //SPI.beginTransaction(SPISettings(BME680_DEFAULT_SPIFREQ, MSBFIRST, SPI_MODE0));
   }
 
   digitalWrite(cspin, LOW);
@@ -610,7 +614,11 @@ static int8_t spi_write(uint8_t cspin, uint8_t reg_addr, uint8_t *reg_data, uint
 
   // If hardware SPI we should use transactions!
   if (_BME680_SoftwareSPI_SCK == -1) {
-    SPI.beginTransaction(SPISettings(BME680_DEFAULT_SPIFREQ, MSBFIRST, SPI_MODE0));
+    SPI.begin();
+    SPI.setClockDivider(BME680_DEFAULT_SPIFREQ);
+    SPI.setBitOrder(MSBFIRST);
+    SPI.setDataMode(SPI_MODE0);
+    //SPI.beginTransaction(SPISettings(BME680_DEFAULT_SPIFREQ, MSBFIRST, SPI_MODE0));
   }
 
   digitalWrite(cspin, LOW);
