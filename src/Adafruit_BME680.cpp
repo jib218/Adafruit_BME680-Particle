@@ -178,6 +178,10 @@ bool Adafruit_BME680::begin(uint8_t addr, bool initSettings) {
     setIIRFilterSize(BME680_FILTER_SIZE_3);
     setGasHeater(320, 150); // 320*C for 150 ms
   } else {
+    setTemperatureOversampling(BME680_OS_NONE);
+    setHumidityOversampling(BME680_OS_NONE);
+    setPressureOversampling(BME680_OS_NONE);
+    setIIRFilterSize(BME680_FILTER_SIZE_0);
     setGasHeater(0, 0);
   }
   // don't do anything till we request a reading
@@ -287,16 +291,16 @@ unsigned long Adafruit_BME680::beginReading(void) {
   gas_sensor.power_mode = BME680_FORCED_MODE;
 
   /* Set the required sensor settings needed */
-  if (_tempEnabled)
+  //if (_tempEnabled)
     set_required_settings |= BME680_OST_SEL;
-  if (_humEnabled)
+  //if (_humEnabled)
     set_required_settings |= BME680_OSH_SEL;
-  if (_presEnabled)
+  //if (_presEnabled)
     set_required_settings |= BME680_OSP_SEL;
-  if (_filterEnabled)
+  //if (_filterEnabled)
     set_required_settings |= BME680_FILTER_SEL;
-  if (_gasEnabled)
-    set_required_settings |= BME680_GAS_SENSOR_SEL;
+  //if (_gasEnabled)
+    set_required_settings |= BME680_GAS_SENSOR_SEL |  BME680_HCNTRL_SEL;
 
   /* Set the desired sensor configuration */
 #ifdef BME680_DEBUG
